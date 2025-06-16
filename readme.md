@@ -119,5 +119,3 @@ Todas as requisições devem ser feitas para o API Gateway (Traefik) na porta `8
     * Sistema: `PostgreSQL`
     * Servidor: `postgres_db`
     * Usuário/Senha: `postgres` / `postgres`
-
-## 📁 Estrutura do Projeto
