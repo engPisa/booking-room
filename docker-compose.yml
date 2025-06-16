@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # ======================================================
+  # 1. INFRAESTRUTURA
+  # ======================================================
+  postgres_db:
+    image: postgres:15
+    container_name: postgres_db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - user-db-net
+      - room-db-net
+      - reservation-db-net
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "15672:15672"
+    networks:
+      - rabbitmq-net
+
+  # ======================================================
+  # 2. FERRAMENTAS DE DESENVOLVIMENTO
+  # ======================================================
+  adminer:
+    image: adminer
+    container_name: adminer_tool
+    restart: always
+    ports:
+      - "8088:8080"
+    networks:
+      - user-db-net
+      - room-db-net
+      - reservation-db-net
+
+  # ======================================================
+  # 3. API GATEWAY E MICROSERVIÇOS
+  # ======================================================
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik_api_gateway
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - web-gateway
+
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres_db:5432/users_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres_db
+      - rabbitmq
+    networks:
+      - web-gateway
+      - user-db-net
+      - rabbitmq-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-service.rule=Host(`localhost`) && PathPrefix(`/api/users`)"
+      - "traefik.http.services.user-service.loadbalancer.server.port=8080"
+      - "traefik.http.routers.user-service.networks=web-gateway"
+
+  room-service:
+    build: ./room-service
+    container_name: room-service
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres_db:5432/rooms_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres_db
+      - rabbitmq
+    networks:
+      - web-gateway
+      - room-db-net
+      - rabbitmq-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.room-service.rule=Host(`localhost`) && PathPrefix(`/api/rooms`)"
+      - "traefik.http.services.room-service.loadbalancer.server.port=8082"
+      - "traefik.http.routers.room-service.networks=web-gateway"
+
+  reservation-service:
+    build: ./reservation-service
+    container_name: reservation-service
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres_db:5432/reservations_db
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres_db
+      - rabbitmq
+    networks:
+      - web-gateway
+      - reservation-db-net
+      - rabbitmq-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reservation-service.rule=Host(`localhost`) && PathPrefix(`/api/reservations`)"
+      - "traefik.http.services.reservation-service.loadbalancer.server.port=8081"
+      - "traefik.http.routers.reservation-service.networks=web-gateway"
+
+networks:
+  web-gateway:
+    driver: bridge
+  user-db-net:
+    driver: bridge
+  room-db-net:
+    driver: bridge
+  reservation-db-net:
+    driver: bridge
+  rabbitmq-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
